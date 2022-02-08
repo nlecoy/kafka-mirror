@@ -83,8 +83,9 @@ func main() {
 		}
 
 		err = producer.WriteMessages(ctx, kafka.Message{
-			Key:   msg.Key,
-			Value: msg.Value,
+			Key:     msg.Key,
+			Value:   msg.Value,
+			Headers: msg.Headers,
 		})
 		if err != nil {
 			log.Fatal(err)
