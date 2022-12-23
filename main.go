@@ -5,7 +5,8 @@ import (
 	"flag"
 	"fmt"
 	"log"
-	"math/rand"
+	"os"
+	"os/signal"
 	"strings"
 	"time"
 
@@ -27,10 +28,6 @@ type Config struct {
 	}
 }
 
-func sample(rate float64) bool {
-	return rand.Float64() < rate
-}
-
 func main() {
 	var envfile string
 	flag.StringVar(&envfile, "env-file", ".env", "Read in a file of environment variables.")
@@ -42,53 +39,52 @@ func main() {
 		log.Fatal(err)
 	}
 
-	ctx := context.Background()
+	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, os.Kill)
+	defer stop()
 
-	rand.Seed(time.Now().UnixNano())
-	rate := cfg.SampleRate
-	if rate < 0 || rate > 1.0 {
-		rate = 1.0
+	sourceTopic := cfg.Source.Topic
+	if sourceTopic == "" {
+		log.Fatal("must provide a source topic")
 	}
 
 	destinationTopic := cfg.Destination.Topic
 	if destinationTopic == "" {
-		destinationTopic = cfg.Source.Topic
+		destinationTopic = sourceTopic
 	}
 
+	fmt.Println("Source topic", sourceTopic)
+	fmt.Println("Destination topic", destinationTopic)
+
 	consumer := kafka.NewReader(kafka.ReaderConfig{
-		Brokers:  strings.Split(cfg.Source.Brokers, ","),
-		Topic:    cfg.Source.Topic,
-		MinBytes: 10e3, // 10KB
-		MaxBytes: 10e6, // 10MB
+		Brokers: strings.Split(cfg.Source.Brokers, ","),
+		Topic:   sourceTopic,
+		GroupID: "kafka-mirror",
 	})
 	defer consumer.Close()
+
+	consumer.SetOffset(0)
 
 	producer := &kafka.Writer{
 		Addr:         kafka.TCP(strings.Split(cfg.Destination.Brokers, ",")...),
 		Topic:        destinationTopic,
 		Balancer:     &kafka.LeastBytes{},
-		BatchTimeout: 10 * time.Millisecond,
+		BatchTimeout: time.Second,
 	}
 	defer producer.Close()
 
-	fmt.Println("start consuming...")
+	fmt.Println("Start consuming...")
 	for {
-		msg, err := consumer.ReadMessage(ctx)
+		msg, err := consumer.FetchMessage(ctx)
 		if err != nil {
 			log.Fatal(err)
-		}
-
-		if !sample(rate) {
-			continue
 		}
 
 		err = producer.WriteMessages(ctx, kafka.Message{
-			Key:     msg.Key,
-			Value:   msg.Value,
-			Headers: msg.Headers,
+			Key:   msg.Key,
+			Value: msg.Value,
 		})
 		if err != nil {
-			log.Fatal(err)
+			log.Fatalf("Error writing to Kafka: %s", err)
 		}
 	}
 }

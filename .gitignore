@@ -19,3 +19,6 @@ release/
 
 # Environment
 .env
+
+# Editors
+.vscode

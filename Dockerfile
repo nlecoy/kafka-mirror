@@ -1,18 +1,15 @@
-FROM golang:1.17-alpine AS build
+FROM reg.b47ch.com/app-go-builder:1.16-alpine AS build
 
-WORKDIR /app
+COPY vendor /go/src/github.com/nlecoy/kafka-mirror/vendor
 
-COPY go.mod ./
-COPY go.sum ./
+RUN go install github.com/nlecoy/kafka-mirror/vendor/...
 
-RUN go mod download
+COPY *.go /go/src/github.com/nlecoy/kafka-mirror/
 
-COPY main.go ./
+RUN go install github.com/nlecoy/kafka-mirror/...
 
-RUN go build -ldflags "-extldflags \"-static\"" -o release/kafka-mirror github.com/nlecoy/kafka-mirror
+FROM reg.b47ch.com/app-go-base:alpine
 
-FROM alpine:3.11
+COPY --from=build /go/bin/kafka-mirror /go/bin/kafka-mirror
 
-COPY --from=build /app/release/kafka-mirror /bin/
-
-ENTRYPOINT [ "/bin/kafka-mirror" ]
+ENTRYPOINT ["/go/bin/kafka-mirror"]
